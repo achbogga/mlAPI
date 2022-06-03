@@ -14,6 +14,7 @@ import traceback
 import urllib
 from datetime import datetime, timedelta
 from io import BytesIO
+
 import numpy as np
 import psycopg2
 from PIL import Image
@@ -21,29 +22,31 @@ from tqdm import tqdm
 
 from triton.triton_image_client import classify_with_triton, get_slice_generator
 from utils.io_utils import NpEncoder, save_voc_anns
+from utils.cluster_utils import cluster_using_db_scan
 
 log = logging.getLogger("pdds.grid_view_pdds")
 
+
 def grid_view_pdds(
-    space_id = "75195",
-    date_str = "07-08-2021",
-    label_map = {
+    space_id="75195",
+    date_str="07-08-2021",
+    label_map={
         0: "pgf_daylight_healthy",
         1: "pgf_daylight_unhealthy",
         2: "empty",
         3: "purple",
     },
-    input_preprocessing_enum = "CONVNEXT",
-    model_name ="convnext_onnx",
-    model_version = "",
-    batch_size = 32,
-    server_url = "localhost:8000",
-    cluster_eps = 1000,
-    cluster_min_samples = 5,
-    slice_width = 1024,
-    slice_height = 1024,
-    debug = False,
-    debug_folder = "/temp/debug_images_output"
+    input_preprocessing_enum="CONVNEXT",
+    model_name="convnext_onnx",
+    model_version="",
+    batch_size=32,
+    server_url="localhost:8000",
+    cluster_eps=1000,
+    cluster_min_samples=5,
+    slice_width=1024,
+    slice_height=1024,
+    debug=False,
+    debug_folder="/temp/debug_images_output",
 ):
     """
 

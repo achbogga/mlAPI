@@ -15,4 +15,4 @@ uvicorn
 Pillow
 tritonclient[all]
 tqdm
-psycopg2
+psycopg2-binary
