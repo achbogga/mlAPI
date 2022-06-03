@@ -6,7 +6,6 @@ Depends on triton image client which communicates with the server via http
 created on June 3, 2022
 @author : aboggaram@iunu.com
 """
-import itertools
 import json
 import logging
 import os
@@ -47,7 +46,7 @@ def process_images(payload):
         payload (dict): dict of the function kwargs
 
     Returns:
-        images_info_list (dict): dict of the results per process
+        images_info_dict (dict[image_url, info]): dict of the results
     """
     label_map = payload["label_map"]
     input_preprocessing_enum = payload["input_preprocessing_enum"]
@@ -66,7 +65,7 @@ def process_images(payload):
 
     # display the process ID for debugging
     log.info("[INFO] starting process {}".format(payload["id"]))
-    images_info_list = []
+    images_info_dict = {}
     for image_entry in tqdm(images):
         image_info = {}
         image_info["id"] = image_entry[0]
@@ -209,8 +208,8 @@ def process_images(payload):
             )
             with open(output_json_file_path, "w") as fp:
                 json.dump(image_info, fp, indent=4, cls=NpEncoder)
-        images_info_list.append(image_info)
-    return images_info_list
+        images_info_dict[image_info["url"]] = image_info
+    return images_info_dict
 
 
 def grid_view_pdds(
@@ -295,7 +294,7 @@ def grid_view_pdds(
     cur = conn.cursor()
     # Execute the query
     cur.execute(query, (space_id, date_time_obj, next_date_time_obj))
-    images = cur.fetchall()
+    images = cur.fetchall()[:20]
 
     # Get the number of available cpu cores
     procs = cpu_count()
@@ -322,7 +321,9 @@ def grid_view_pdds(
 
     # close the pool and wait for all processes to finish
     log.info("[INFO] Combining the results...")
-    images_info_list = itertools.chain(results)
+    images_info_dict = {}
+    for result in results:
+        images_info_dict.update(result)
 
     # close the pool and wait for all processes to finish
     log.info("[INFO] waiting for processes to finish...")
@@ -331,4 +332,4 @@ def grid_view_pdds(
     log.info("[INFO] multiprocessing complete")
 
     # send out the data as a list of dicts corresponding to each bob image
-    return images_info_list
+    return images_info_dict
