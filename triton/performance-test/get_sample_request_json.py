@@ -7,10 +7,10 @@ The only requirement is to install with the following pip command:
 created on May, 2022
 @author : aboggaram@iunu.com
 """
+import json
 import string
 import sys
-from functools import partial
-import json
+
 import numpy as np
 import tritonclient.grpc as grpcclient
 import tritonclient.grpc.model_config_pb2 as mc
@@ -18,6 +18,7 @@ import tritonclient.http as httpclient
 from attrdict import AttrDict
 from PIL import Image
 from tritonclient.utils import InferenceServerException, triton_to_np_dtype
+
 
 class NpEncoder(json.JSONEncoder):
     """
@@ -40,6 +41,7 @@ class NpEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return super(NpEncoder, self).default(obj)
+
 
 if sys.version_info >= (3, 0):
     import queue
@@ -366,7 +368,7 @@ def get_json_data(
     except InferenceServerException as e:
         print("failed to retrieve the config: " + str(e))
         sys.exit(1)
-    
+
     model_metadata, model_config = convert_http_metadata_config(
         model_metadata, model_config
     )
@@ -403,6 +405,7 @@ def get_json_data(
         request_wise_batched_data.append(batched_image_data)
     return request_wise_batched_data
 
+
 def unit_test_gen(no_of_images):
     for i in range(no_of_images):
         yield Image.open(
@@ -415,14 +418,18 @@ def unit_test():
     batch_size = no_of_images
     unit_test_gen_obj = unit_test_gen(no_of_images)
     json_data = {}
-    inputs_1 = {"name": "input.1", \
-                "shape": [64, 3, 256, 256], \
-                "datatype": "FP32", \
-                "parameters": {"binary_data": False}}
-    outputs_1 = {"name": "1510", \
-                "shape": [4], \
-                "datatype": "FP32", \
-                "parameters": {"binary_data": True}}
+    inputs_1 = {
+        "name": "input.1",
+        "shape": [64, 3, 256, 256],
+        "datatype": "FP32",
+        "parameters": {"binary_data": False},
+    }
+    outputs_1 = {
+        "name": "1510",
+        "shape": [4],
+        "datatype": "FP32",
+        "parameters": {"binary_data": True},
+    }
     request_wise_batched_data = get_json_data(
         "convnext_onnx",
         unit_test_gen_obj,
@@ -432,6 +439,12 @@ def unit_test():
     inputs_1["data"] = request_wise_batched_data[0].flatten()
     json_data["inputs"] = [inputs_1]
     json_data["outputs"] = [outputs_1]
-    with open('/home/aboggaram/projects/cvf-3/cvf/triton/performance-test/sample_request.json', 'w', encoding='utf-8') as fp:
-        json.dump(json_data, fp, indent=4, cls = NpEncoder)
+    with open(
+        "/home/aboggaram/projects/cvf-3/cvf/triton/performance-test/sample_request.json",
+        "w",
+        encoding="utf-8",
+    ) as fp:
+        json.dump(json_data, fp, indent=4, cls=NpEncoder)
+
+
 # unit_test()
