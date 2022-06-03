@@ -1,16 +1,24 @@
-# FastAPI
-This repository explains how to create Microservices using FastAPI
+# Pest and Disease Detection System API
 
-Complete Explanation is available in below link:
+This repository explains how to create PDDS Microservice API
+using FastAPI and Nvidia Triton Inference Server
 
-https://ashutoshtripathi.com/2021/02/15/how-to-deploy-machine-learning-models-as-a-microservice-using-fastapi/
+## Getting started
 
-####### Create Python Virtual Environment and install all dependencies as follows ######
+```bash
+conda create --clone base --name pdds_api
+conda activate pdds_api
+python3 -m pip install -r requirements.txt
+python3 main.py | tee pdds_api.log
+```
 
-create venv using command: python -m venv venvname
+## to run the service in the background
 
-activate venv: venvname\Scripts\Activate
+```bash
+conda activate pdds_api
+python3 main.py | tee pdds_api.log &
+```
 
-install dependencies: pip install -r requirements.txt
-
-run using: uvicorn main:app --reload
+## API Usage and Documentation
+- Type the following link in your web browser
+- [http://localhost:8080/docs](http://localhost:8080/docs)

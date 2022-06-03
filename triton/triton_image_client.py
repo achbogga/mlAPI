@@ -480,10 +480,10 @@ def classify_with_triton(
                 responses.append(async_request.get_result())
     all_final_predictions = []
     for response in responses:
-        if protocol.lower() == "grpc":
-            this_id = response.get_response().id
-        else:
-            this_id = response.get_response()["id"]
+        # if protocol.lower() == "grpc":
+        #     this_id = response.get_response().id
+        # else:
+        #     this_id = response.get_response()["id"]
         # print("Request {}, batch size {}".format(this_id, batch_size))
         final_predictions = postprocess(
             response, output_name, batch_size, max_batch_size > 0

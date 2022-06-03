@@ -12,6 +12,8 @@ import logging
 import os
 import traceback
 import urllib
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -21,8 +23,8 @@ from PIL import Image
 from tqdm import tqdm
 
 from triton.triton_image_client import classify_with_triton, get_slice_generator
-from utils.io_utils import NpEncoder, save_voc_anns
 from utils.cluster_utils import cluster_using_db_scan
+from utils.io_utils import NpEncoder, save_voc_anns
 
 log = logging.getLogger("pdds.grid_view_pdds")
 
@@ -49,34 +51,29 @@ def grid_view_pdds(
     debug_folder="/temp/debug_images_output",
 ):
     """
-
     Full space Pest and Disease Detection System (PDDS) on Grid images
     -> given a space id, and a date_str in the format '%m-%d-%Y',
     returns a list of unhealthy clusters with resepctive confidence values in the full space
     respective to each grid image in the space
 
+    Args:
+        space_id (str, optional): _description_. Defaults to "75195".
+        date_str (str, optional): _description_. Defaults to "07-08-2021".
+        label_map (dict, optional): _description_. Defaults to { 0: "pgf_daylight_healthy", 1: "pgf_daylight_unhealthy", 2: "empty", 3: "purple", }.
+        input_preprocessing_enum (str, optional): _description_. Defaults to "CONVNEXT".
+        model_name (str, optional): _description_. Defaults to "convnext_onnx".
+        model_version (str, optional): _description_. Defaults to "".
+        batch_size (int, optional): _description_. Defaults to 32.
+        server_url (str, optional): _description_. Defaults to "localhost:8000".
+        cluster_eps (int, optional): _description_. Defaults to 1000.
+        cluster_min_samples (int, optional): _description_. Defaults to 5.
+        slice_width (int, optional): _description_. Defaults to 1024.
+        slice_height (int, optional): _description_. Defaults to 1024.
+        debug (bool, optional): _description_. Defaults to False.
+        debug_folder (str, optional): _description_. Defaults to "/temp/debug_images_output".
 
-    Parameters
-    ---------
-    space_id_in : str
-    date_str_in : str
-    label_map_in : dict(int:str)
-    input_preprocessing_enum_in : str
-    model_name_in : str
-    model_version_in : str
-    batch_size_in : int
-    server_url_in : int
-    cluster_eps_in : float
-    cluster_min_samples_in : int
-    slice_width_in : int
-    slice_height_in : int
-    debug_in : bool
-    debug_folder_in : str
-
-    Returns
-    ------
-    data_out : list
-
+    Returns:
+        _type_: _description_
     """
 
     log.info(f"Starting full space {space_id} from {date_str} grid view PDDS")

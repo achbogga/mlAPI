@@ -16,3 +16,6 @@ Pillow
 tritonclient[all]
 tqdm
 psycopg2-binary
+attrdict
+sklearn
+pascal_voc_writer

@@ -1,39 +1,40 @@
-from fastapi import FastAPI, File, Form, UploadFile
+import uvicorn
+from fastapi import FastAPI
 from pydantic import BaseModel
-import pickle
-import numpy as np
-import pandas as pd
-from io import StringIO
+
+from pdds.grid_view_pdds import grid_view_pdds
 
 app = FastAPI()
 
-class IrisSpecies(BaseModel):
-    sepal_length: float 
-    sepal_width: float 
-    petal_length: float 
-    petal_width: float
 
-@app.post('/predict')
-async def predict_species(iris: IrisSpecies):
-    data = iris.dict()
-    loaded_model = pickle.load(open('LRClassifier.pkl', 'rb'))
-    data_in = [[data['sepal_length'], data['sepal_width'], data['petal_length'], data['petal_width']]]
-    prediction = loaded_model.predict(data_in)
-    probability = loaded_model.predict_proba(data_in).max()
-            
-    return {
-        'prediction': prediction[0],
-        'probability': probability
+class GridViewSpace(BaseModel):
+    space_id: str = "75195"
+    date_str: str = "07-08-2021"
+    label_map: dict[int, str] = {
+        0: "pgf_daylight_healthy",
+        1: "pgf_daylight_unhealthy",
+        2: "empty",
+        3: "purple",
     }
+    input_preprocessing_enum: str = "CONVNEXT"
+    model_name: str = "convnext_onnx"
+    model_version: str = ""
+    batch_size: int = 32
+    server_url: str = "localhost:8000"
+    cluster_eps: int = 1000
+    cluster_min_samples: int = 5
+    slice_width: int = 1024
+    slice_height: int = 1024
+    debug: bool = False
+    debug_folder: str = "/temp/debug_images_output"
 
-@app.post("/files/")
-async def create_file(file: bytes = File(...), token: str = Form(...)):
-    s=str(file,'utf-8')
-    data = StringIO(s)
-    df=pd.read_csv(data)
-    print(df)
-    #return df
-    return {
-        "file": df,
-        "token": token,
-    }
+
+@app.post("/pdds/grid_view")
+async def predict_unhealthy(space: GridViewSpace):
+    data = space.dict()
+    results = grid_view_pdds(**data)
+    return results
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, port=8080, host="0.0.0.0")
