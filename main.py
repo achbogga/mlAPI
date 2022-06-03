@@ -19,8 +19,9 @@ class GridViewSpace(BaseModel):
     input_preprocessing_enum: str = "CONVNEXT"
     model_name: str = "convnext_onnx"
     model_version: str = ""
-    batch_size: int = 32
+    batch_size: int = 16
     server_url: str = "localhost:8000"
+    run_clustering: bool = False
     cluster_eps: int = 1000
     cluster_min_samples: int = 5
     slice_width: int = 1024

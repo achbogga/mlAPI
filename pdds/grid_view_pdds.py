@@ -6,7 +6,7 @@ Depends on triton image client which communicates with the server via http
 created on June 3, 2022
 @author : aboggaram@iunu.com
 """
-
+import itertools
 import json
 import logging
 import os
@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from io import BytesIO
+from multiprocessing import Pool, cpu_count
 
 import numpy as np
 import psycopg2
@@ -29,84 +30,42 @@ from utils.io_utils import NpEncoder, save_voc_anns
 log = logging.getLogger("pdds.grid_view_pdds")
 
 
-def grid_view_pdds(
-    space_id="75195",
-    date_str="07-08-2021",
-    label_map={
-        0: "pgf_daylight_healthy",
-        1: "pgf_daylight_unhealthy",
-        2: "empty",
-        3: "purple",
-    },
-    input_preprocessing_enum="CONVNEXT",
-    model_name="convnext_onnx",
-    model_version="",
-    batch_size=32,
-    server_url="localhost:8000",
-    cluster_eps=1000,
-    cluster_min_samples=5,
-    slice_width=1024,
-    slice_height=1024,
-    debug=False,
-    debug_folder="/temp/debug_images_output",
-):
+def chunk(image_list, n):
+    # loop over the list in n-sized chunks
+    for i in range(0, len(image_list), n):
+        # yield the current n-sized chunk to the calling function
+        yield image_list[i : i + n]
+
+
+def process_images(payload):
     """
-    Full space Pest and Disease Detection System (PDDS) on Grid images
-    -> given a space id, and a date_str in the format '%m-%d-%Y',
-    returns a list of unhealthy clusters with resepctive confidence values in the full space
-    respective to each grid image in the space
+     Multiprocess copy of the grid_view_pdds,
+     takes in the payload per process and returns results
+     The arguments are same as the parent fn
 
     Args:
-        space_id (str, optional): _description_. Defaults to "75195".
-        date_str (str, optional): _description_. Defaults to "07-08-2021".
-        label_map (dict, optional): _description_. Defaults to { 0: "pgf_daylight_healthy", 1: "pgf_daylight_unhealthy", 2: "empty", 3: "purple", }.
-        input_preprocessing_enum (str, optional): _description_. Defaults to "CONVNEXT".
-        model_name (str, optional): _description_. Defaults to "convnext_onnx".
-        model_version (str, optional): _description_. Defaults to "".
-        batch_size (int, optional): _description_. Defaults to 32.
-        server_url (str, optional): _description_. Defaults to "localhost:8000".
-        cluster_eps (int, optional): _description_. Defaults to 1000.
-        cluster_min_samples (int, optional): _description_. Defaults to 5.
-        slice_width (int, optional): _description_. Defaults to 1024.
-        slice_height (int, optional): _description_. Defaults to 1024.
-        debug (bool, optional): _description_. Defaults to False.
-        debug_folder (str, optional): _description_. Defaults to "/temp/debug_images_output".
+        payload (dict): dict of the function kwargs
 
     Returns:
-        _type_: _description_
+        images_info_list (dict): dict of the results per process
     """
+    label_map = payload["label_map"]
+    input_preprocessing_enum = payload["input_preprocessing_enum"]
+    model_name = payload["model_name"]
+    model_version = payload["model_version"]
+    batch_size = payload["batch_size"]
+    server_url = payload["server_url"]
+    cluster_eps = payload["cluster_eps"]
+    cluster_min_samples = payload["cluster_min_samples"]
+    slice_width = payload["slice_width"]
+    slice_height = payload["slice_height"]
+    debug = payload["debug"]
+    debug_folder = payload["debug_folder"]
+    images = payload["input_paths"]
+    run_clustering = payload["run_clustering"]
 
-    log.info(f"Starting full space {space_id} from {date_str} grid view PDDS")
-
-    log.info(f"All classes in the model are {label_map.values()}")
-    log.info(f"Batch size value set to {batch_size}")
-    # Connect to the database and download grid view bob images
-    try:
-        conn = psycopg2.connect(
-            "dbname='luna' \
-            user='data_pipeline_dev' host='10.168.0.2'"
-        )
-    except Exception as e:
-        logging.info(f"{e} Can't connect to the PSQL database")
-        logging.error(traceback.format_exc())
-        exit(0)
-
-    if debug and not os.path.exists(debug_folder):
-        os.makedirs(debug_folder)
-
-    # Construct the ROI query
-    date_time_str = date_str + " 00:00:00"
-    date_time_obj = datetime.strptime(date_time_str, "%m-%d-%Y %H:%M:%S")
-    next_date_time_obj = date_time_obj + timedelta(days=1)
-    query = "select id, position_x, position_y, \
-                gs_url from log_arc_image_stream where \
-                space_id = (%s) and created_on > (%s) and created_on < (%s) \
-                and passnum = 1;"
-    # Create the cursor
-    cur = conn.cursor()
-    # Execute the query
-    cur.execute(query, (space_id, date_time_obj, next_date_time_obj))
-    images = cur.fetchall()
+    # display the process ID for debugging
+    log.info("[INFO] starting process {}".format(payload["id"]))
     images_info_list = []
     for image_entry in tqdm(images):
         image_info = {}
@@ -204,41 +163,43 @@ def grid_view_pdds(
                 overlay_image_path=overlay_image_path,
                 overlay_class_name="pgf_daylight_unhealthy",
             )
-        # Run clustering only if unhealthy patches are identified by the model
-        run_clustering = False
-        for cls in all_classes_in_preds:
-            if cls == "pgf_daylight_unhealthy":
-                run_clustering = True
+        # Run clustering if requested
         if run_clustering:
-            if debug:
-                unhealthy_clusters_path = debug_folder + "/unhealthy_clusters"
-                plot_image_path = (
-                    unhealthy_clusters_path
-                    + "/"
-                    + image_info["name"].replace(".jpg", "_unhealthy_clusters.jpg")
+            # Run clustering only if unhealthy patches are identified by the model
+            run_clustering_on_image = False
+            for cls in all_classes_in_preds:
+                if cls == "pgf_daylight_unhealthy":
+                    run_clustering_on_image = True
+            if run_clustering_on_image:
+                if debug:
+                    unhealthy_clusters_path = debug_folder + "/unhealthy_clusters"
+                    plot_image_path = (
+                        unhealthy_clusters_path
+                        + "/"
+                        + image_info["name"].replace(".jpg", "_unhealthy_clusters.jpg")
+                    )
+                    if not os.path.exists(unhealthy_clusters_path):
+                        os.makedirs(unhealthy_clusters_path)
+                else:
+                    plot_image_path = ""
+                # store the unhealthy slice centers in the image info dict
+                unhealhthy_slice_centers = [
+                    slice_centers[i]
+                    for i in range(len(slice_centers))
+                    if slice_predictions[i][0] == "pgf_daylight_unhealthy"
+                ]
+                # Cluster unhealthy centers using db_scan and store the cluster centroids
+                X = np.array(unhealhthy_slice_centers, dtype=np.int16)
+                image_info["unhealthy_cluster_centers"] = cluster_using_db_scan(
+                    X,
+                    np_image,
+                    cluster_eps=cluster_eps,
+                    min_samples=cluster_min_samples,
+                    debug=debug,
+                    plot_image_path=plot_image_path,
                 )
-                if not os.path.exists(unhealthy_clusters_path):
-                    os.makedirs(unhealthy_clusters_path)
             else:
-                plot_image_path = ""
-            # store the unhealthy slice centers in the image info dict
-            unhealhthy_slice_centers = [
-                slice_centers[i]
-                for i in range(len(slice_centers))
-                if slice_predictions[i][0] == "pgf_daylight_unhealthy"
-            ]
-            # Cluster unhealthy centers using db_scan and store the cluster centroids
-            X = np.array(unhealhthy_slice_centers, dtype=np.int16)
-            image_info["unhealthy_cluster_centers"] = cluster_using_db_scan(
-                X,
-                np_image,
-                cluster_eps=cluster_eps,
-                min_samples=cluster_min_samples,
-                debug=debug,
-                plot_image_path=plot_image_path,
-            )
-        else:
-            image_info["unhealthy_cluster_centers"] = []
+                image_info["unhealthy_cluster_centers"] = []
         if debug:
             debug_info_path = debug_folder + "/debug_info"
             if not os.path.exists(debug_info_path):
@@ -249,5 +210,125 @@ def grid_view_pdds(
             with open(output_json_file_path, "w") as fp:
                 json.dump(image_info, fp, indent=4, cls=NpEncoder)
         images_info_list.append(image_info)
+    return images_info_list
+
+
+def grid_view_pdds(
+    space_id="75195",
+    date_str="07-08-2021",
+    label_map={
+        0: "pgf_daylight_healthy",
+        1: "pgf_daylight_unhealthy",
+        2: "empty",
+        3: "purple",
+    },
+    input_preprocessing_enum="CONVNEXT",
+    model_name="convnext_onnx",
+    model_version="",
+    batch_size=32,
+    server_url="localhost:8000",
+    run_clustering=False,
+    cluster_eps=1000,
+    cluster_min_samples=5,
+    slice_width=1024,
+    slice_height=1024,
+    debug=False,
+    debug_folder="/temp/debug_images_output",
+):
+    """
+    Full space Pest and Disease Detection System (PDDS) on Grid images
+    -> given a space id, and a date_str in the format '%m-%d-%Y',
+    returns a list of unhealthy clusters with resepctive confidence values in the full space
+    respective to each grid image in the space
+
+    Args:
+        space_id (str): _description_. Defaults to "75195".
+        date_str (str): _description_. Defaults to "07-08-2021".
+        label_map (dict, optional): _description_. Defaults to { 0: "pgf_daylight_healthy", 1: "pgf_daylight_unhealthy", 2: "empty", 3: "purple", }.
+        input_preprocessing_enum (str, optional): _description_. Defaults to "CONVNEXT".
+        model_name (str, optional): _description_. Defaults to "convnext_onnx".
+        model_version (str, optional): _description_. Defaults to "".
+        batch_size (int, optional): _description_. Defaults to 32.
+        server_url (str, optional): _description_. Defaults to "localhost:8000".
+        run_clustering (bool, optional): _description_. Defaults to False.
+        cluster_eps (int, optional): _description_. Defaults to 1000.
+        cluster_min_samples (int, optional): _description_. Defaults to 5.
+        slice_width (int, optional): _description_. Defaults to 1024.
+        slice_height (int, optional): _description_. Defaults to 1024.
+        debug (bool, optional): _description_. Defaults to False.
+        debug_folder (str, optional): _description_. Defaults to "/temp/debug_images_output".
+
+    Returns:
+        _type_: _description_
+    """
+
+    # get the args copied into a dict
+    function_params = locals()
+
+    log.info(f"Starting full space {space_id} from {date_str} grid view PDDS")
+
+    log.info(f"All classes in the model are {label_map.values()}")
+    log.info(f"Batch size value set to {batch_size}")
+    # Connect to the database and download grid view bob images
+    try:
+        conn = psycopg2.connect(
+            "dbname='luna' \
+            user='data_pipeline_dev' host='10.168.0.2'"
+        )
+    except Exception as e:
+        logging.info(f"{e} Can't connect to the PSQL database")
+        logging.error(traceback.format_exc())
+        exit(0)
+
+    if debug and not os.path.exists(debug_folder):
+        os.makedirs(debug_folder)
+
+    # Construct the ROI query
+    date_time_str = date_str + " 00:00:00"
+    date_time_obj = datetime.strptime(date_time_str, "%m-%d-%Y %H:%M:%S")
+    next_date_time_obj = date_time_obj + timedelta(days=1)
+    query = "select id, position_x, position_y, \
+                gs_url from log_arc_image_stream where \
+                space_id = (%s) and created_on > (%s) and created_on < (%s) \
+                and passnum = 1;"
+    # Create the cursor
+    cur = conn.cursor()
+    # Execute the query
+    cur.execute(query, (space_id, date_time_obj, next_date_time_obj))
+    images = cur.fetchall()
+
+    # Get the number of available cpu cores
+    procs = cpu_count()
+    procIDs = list(range(0, procs))
+    numImagesPerProc = len(images) / float(procs)
+    numImagesPerProc = int(np.ceil(numImagesPerProc))
+    # chunk the image paths into N (approximately) equal sets, one
+    # set of image paths for each individual process
+    chunkedPaths = list(chunk(images, numImagesPerProc))
+
+    # initialize the list of payloads
+    payloads = []
+    # loop over the set chunked image paths
+    for (i, imagePaths) in enumerate(chunkedPaths):
+        # construct a dictionary of data for the payload, then add it
+        # to the payloads list
+        data = {"id": i, "input_paths": imagePaths}
+        data.update(function_params)
+        payloads.append(data)
+    # construct and launch the processing pool
+    log.info("[INFO] launching pool using {} processes...".format(procs))
+    pool = Pool(processes=procs)
+    results = pool.map(process_images, payloads)
+
+    # close the pool and wait for all processes to finish
+    log.info("[INFO] Combining the results...")
+    images_info_list = itertools.chain(results)
+
+    # close the pool and wait for all processes to finish
+    log.info("[INFO] waiting for processes to finish...")
+    pool.close()
+    pool.join()
+    log.info("[INFO] multiprocessing complete")
+
     # send out the data as a list of dicts corresponding to each bob image
     return images_info_list
